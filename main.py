@@ -89,8 +89,7 @@ class CardPresenter :
 
                 # right part : single-card details and picture
                 self.imglbl = tix.Label(self.main)
-                self.curimg = None
-                self.curindex = None
+                self.selection_reset()
 
                 # bottom : add-a-card Button
                 self.addacard = tix.Button(self.main, text=" + ", command=self.search)
@@ -122,12 +121,21 @@ class CardPresenter :
                 self.update(pickle.load(file))
 
         def update(self, cards=None):
+                self.selection_reset()
                 if cards is not None :
                         self.cards = cards
                         self.cards.sort(key=lambda card:card.get_foreign_name())
                 self.names.listbox.delete(0,"end")
                 self.names.listbox.insert(0,
                 *[card.get_foreign_name()+" (x{})".format(card.amount)*bool(card.amount-1) for card in self.cards])
+
+        def update_one(self, index):
+                self.names.listbox.delete(index)
+                self.names.listbox.insert(index, self.cards[index].get_foreign_name()+" (x{})".format(self.cards[index].amount)*bool(self.cards[index].amount-1))
+
+        def selection_reset(self):
+                self.curimg = None
+                self.curindex = None
 
         def display_card(self, dummy_arg=None):
                 index = self.names.listbox.curselection()
@@ -141,7 +149,7 @@ class CardPresenter :
 
         def search(self):
                 # 1. Ask the card ID (set + number)
-                resp = askstring("Ajouter une carte", "Saisissez l'identifiant à 6 caractères en bas à gaiche de la carte")
+                resp = askstring("Ajouter une carte", "Saisissez l'identifiant à 6 caractères en bas à gauche de la carte")
                 if resp is None :
                         return
                 if not re.match("[A-Z][A-Z0-9]{2}[0-9]{1,3}", resp) :
@@ -170,12 +178,13 @@ class CardPresenter :
                 rq = rq[0]
                 # 3. Add the found card to the existing database
                 if rq in self.cards :
-                        self.cards[self.cards.index(rq)] += 1
+                        index = self.cards.index(rq)
+                        self.cards[index] += 1
+                        self.update_one(index)
                 else :
                         self.cards.append(rq)
                         self.update(self.cards) # we pass self.cards for parameter, so that update will sort it
-                        self.curindex = None # some (most) card's indexes changed, so we have to reset this all
-                        self.curimg = None
+                        self.selection_reset()
 
         def _select_update(f):
                 def f_(self, dummy_arg=None):
@@ -191,7 +200,6 @@ class CardPresenter :
                                 self.names.listbox.selection_set(index)
                 return f_
 
-
         @_select_update
         def inc(self, card):
                 """Increases the selected card's amount by 1"""
@@ -206,8 +214,7 @@ class CardPresenter :
                                 index = self.cards.index(card)
                                 del self.cards[index]
                                 self.names.listbox.delete(index)
-                                self.curindex = None # some (most) card's indexes changed, so we have to reset this all
-                                self.curimg = None
+                                self.selection_reset()
                         return -1
                 else :
                         card -= 1
@@ -215,4 +222,4 @@ class CardPresenter :
 
 if __name__ == '__main__':
         cp = CardPresenter()
-        #cp.main.mainloop()
+        cp.main.mainloop()
