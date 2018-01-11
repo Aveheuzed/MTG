@@ -52,6 +52,12 @@ class Card(mtgsdk.Card) :
                 self.amount -= amount
                 return self
 
+        def __getstate__(self):
+                return self.__dict__
+
+        def __setstate__(self, state):
+                self.__dict__ = state
+
         def get_foreign_name(card) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
@@ -129,7 +135,7 @@ class CardPresenter :
                 file = asksaveasfile(mode="wb")
                 if file is None :
                         return
-                pickle.dump(self.cards, file)
+                pickle.dump(self.cards, file, protocol=4)
 
         def load(self, dummy_arg=None):
                 file = askopenfile(mode="rb")
