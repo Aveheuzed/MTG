@@ -61,6 +61,17 @@ class Card(mtgsdk.Card) :
         def get_foreign_name(card) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
+                if hasattr(card, "names") :
+                        if card.number.endswith("a"):
+                                number = card.number[:-1]+"b"
+                                card2 = Card.where(set=card.set, number=number).all()[0]
+                                return card._get_foreign_name() + " // " + card2._get_foreign_name()
+                        else :
+                                number = card.number[:-1]+"a"
+                                card2 = Card.where(set=card.set, number=number).all()[0]
+                                return card2._get_foreign_name() + " // " + card._get_foreign_name()
+
+        def _get_foreign_name(card):
                 if card.foreign_names is None :
                         return card.name
                 for d in card.foreign_names :
@@ -172,21 +183,23 @@ class CardPresenter :
 
         def search(self,initial=str()):
                 # 1. Ask the card ID (set + number)
-                resp = askstring("Ajouter une carte", "Saisissez l'identifiant à 6 caractères en bas à gauche de la carte", initialvalue=initial)
+                resp = askstring("Ajouter une carte", "Saisissez l'identifiant à 6~8 caractères en bas à gauche de la carte", initialvalue=initial)
                 if resp is None :
                         return
-                z = re.fullmatch("(?P<code>p?[A-Z][A-Z0-9]{2})(?P<number>[0-9]{1,3})", resp)
+                z = re.fullmatch("(?P<code>p?[A-Za-z][A-Za-z0-9]{2})(?P<number>[0-9]{1,3}(a|b)?)", resp)
                 if not z :
                         showerror("Saisie incorrecte", "Assurez-vous d'avoir correctement saisi l'identifiant (en respectant la casse)")
                         return
-                set_id, num = z.groupdict()["code"], int(z.groupdict()["number"])
+                set_id, num = z.groupdict()["code"].upper(), z.groupdict()["number"].lstrip("0")
 
                 # 2. Proceed the request
                 rq = Card.where(language=LANG, set=set_id, number=num).all()
                 if not len(rq) :
-                        showerror("Aucune carte trouvée", "Le service distant ne répond pas, ou vérifiez votre saisie")
-                        return
-                elif len(rq) > 1 : # never happens yet
+                        rq = Card.where(language=LANG, set=set_id, number=num+"a").all() # maybe it's a flip card
+                        if not len(rq) :
+                                showerror("Aucune carte trouvée", "Le service distant ne répond pas, ou vérifiez votre saisie")
+                                return
+                if len(rq) > 1 : # never happens yet
                         tl = tix.TopLevel(self)
                         lf = tix.LabelFrame(tl, text="Carte(s) trouvée(s), cliquez sur la bonne")
                         lf.pack(fill="both",expand=True)
