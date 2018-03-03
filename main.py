@@ -74,19 +74,21 @@ class Card(mtgsdk.Card) :
         def __setstate__(self, state):
                 self.__dict__ = state
 
-        def get_foreign_name(card) :
+        def get_foreign_name(self) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
-                if card.number.endswith("a"):
-                        number = card.number[:-1]+"b"
-                        card2 = Card.where(set=card.set, number=number).all()[0]
-                        return card._get_foreign_name() + " // " + card2._get_foreign_name()
-                elif card.number.endswith("b") :
-                        number = card.number[:-1]+"a"
-                        card2 = Card.where(set=card.set, number=number).all()[0]
-                        return card2._get_foreign_name() + " // " + card._get_foreign_name()
+                if self.number.endswith("a"):
+                        if not hasattr(self, "twin") :
+                                number = self.number[:-1]+"b"
+                                self.twin  = Card.where(set=self.set, number=number).all()[0]
+                        return self._get_foreign_name() + " // " + self.twin._get_foreign_name()
+                elif self.number.endswith("b") :
+                        if not hasattr(self, "twin") :
+                                number = self.number[:-1]+"a"
+                                self.twin = Card.where(set=self.set, number=number).all()[0]
+                        return self.twin._get_foreign_name() + " // " + self._get_foreign_name()
                 else :
-                        return card._get_foreign_name()
+                        return self._get_foreign_name()
 
         def _get_foreign_name(card):
                 if card.foreign_names is None :
