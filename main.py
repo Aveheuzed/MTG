@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-import io, urllib.request, PIL.Image, PIL.ImageTk, re, pickle
+import io, urllib.request, re, pickle, pickletools, zlib
+from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
 from tkinter.messagebox import showerror,  askokcancel
@@ -13,9 +14,24 @@ CARD_DIM = (223,310)
 
 def list_sets():
         sets = mtgsdk.Set.all()
-        vals = [(s.name, s.code) for s in sorted(sets, key=lambda x:x.release_date, reverse=True)
-        ]
+        vals = [(s.name, s.code) for s in sorted(sets, key=lambda x:x.release_date, reverse=True)]
         return vals
+
+def write_to_file(file, obj):
+        obj = pickle.dumps(obj)
+        obj = pickletools.optimize(obj)
+        obj = zlib.compress(obj)
+        file.write(obj)
+
+def read_from_file(file):
+        obj = file.read()
+        try :
+                obj = zlib.decompress(obj) # former versions : the data was stored uncompressed
+        except :
+                pass
+        finally :
+                obj = pickle.loads(obj)
+                return obj
 
 
 class Card(mtgsdk.Card) :
@@ -61,15 +77,16 @@ class Card(mtgsdk.Card) :
         def get_foreign_name(card) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
-                if hasattr(card, "names") :
-                        if card.number.endswith("a"):
-                                number = card.number[:-1]+"b"
-                                card2 = Card.where(set=card.set, number=number).all()[0]
-                                return card._get_foreign_name() + " // " + card2._get_foreign_name()
-                        else :
-                                number = card.number[:-1]+"a"
-                                card2 = Card.where(set=card.set, number=number).all()[0]
-                                return card2._get_foreign_name() + " // " + card._get_foreign_name()
+                if card.number.endswith("a"):
+                        number = card.number[:-1]+"b"
+                        card2 = Card.where(set=card.set, number=number).all()[0]
+                        return card._get_foreign_name() + " // " + card2._get_foreign_name()
+                elif card.number.endswith("b") :
+                        number = card.number[:-1]+"a"
+                        card2 = Card.where(set=card.set, number=number).all()[0]
+                        return card2._get_foreign_name() + " // " + card._get_foreign_name()
+                else :
+                        return card._get_foreign_name()
 
         def _get_foreign_name(card):
                 if card.foreign_names is None :
@@ -95,9 +112,9 @@ class Card(mtgsdk.Card) :
                         if url is None :
                                 url = card.image_url
                 data = io.BytesIO(urllib.request.urlopen(url).read())
-                img = PIL.Image.open(data)
+                img = Image.open(data)
                 img = img.resize(CARD_DIM)
-                return PIL.ImageTk.PhotoImage(img)
+                return ImageTk.PhotoImage(img)
 
 
 class CardPresenter :
@@ -146,13 +163,13 @@ class CardPresenter :
                 file = asksaveasfile(mode="wb")
                 if file is None :
                         return
-                pickle.dump(self.cards, file, protocol=4)
+                write_to_file(file, self.cards)
 
         def load(self, dummy_arg=None):
                 file = askopenfile(mode="rb")
                 if file is None :
                         return
-                self.update(pickle.load(file))
+                self.update(read_from_file(file))
 
         def update(self, cards=None):
                 self.selection_reset()
