@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 
-import io, urllib.request, re, pickle, pickletools, zlib
+import io, urllib.request, re, pickle, pickletools, zlib, math
 from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
 from tkinter.messagebox import showerror,  askokcancel
 from tkinter import tix
+from tkinter import LabelFrame # tix one's' buggy...
 import mtgsdk
 
 LANG = "French"
-CARD_BOTTOM = "http://upload.wikimedia.org/wikipedia/en/a/aa/Magic_the_gathering-card_back.jpg"
+CARD_BOTTOM = "http://gatherer.wizards.com/Handlers/Image.ashx?type=card&name=Assault%20/%20Battery"
 CARD_DIM = (223,310)
+SORT_PARAMS = [
+        ("nom", "foreign_name"),
+        ("coût", "cmc"),
+        ("type", "type")]
 
 def list_sets():
         sets = mtgsdk.Set.all()
@@ -74,9 +79,20 @@ class Card(mtgsdk.Card) :
         def __setstate__(self, state):
                 self.__dict__ = state
 
-        def get_foreign_name(self) :
+        def __getattr__(self, attr) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
+                if attr not in ("foreign_name", "identifier") :
+                        raise AttributeError("No such atribute : "+attr)
+                elif attr == "identifier" :
+                        return " ".join(str(getattr(self, x, str())).lower() for x in (
+                                        "foreign_name",
+                                        "subtype",
+                                        "type",
+                                        "supertype",
+                                        "watermark",
+                                        "text"))
+
                 if self.number.endswith("a"):
                         if not hasattr(self, "twin") :
                                 number = self.number[:-1]+"b"
@@ -115,7 +131,6 @@ class Card(mtgsdk.Card) :
                                 url = card.image_url
                 data = io.BytesIO(urllib.request.urlopen(url).read())
                 img = Image.open(data)
-                img = img.resize(CARD_DIM)
                 return ImageTk.PhotoImage(img)
 
 
@@ -123,27 +138,38 @@ class CardPresenter :
 
         def __init__(self, master=None, cards=list()):
                 if master is None :
-                        master = tix.Tk()
-
-                self.main = tix.Frame(master)
-                self.main.config(width=480, height=600)
-                # width is the minimun correct, while height can change from 310+height(button) to +inf
+                        self.main = tix.Tk()
+                else :
+                        self.main = master
+                self.main.resizable(False, True)
 
                 # left part : list of all the cards
+                self.cards = list() # for mention only ; self.update fills it
                 self.names = tix.ScrolledListBox(self.main)
                 self.names.listbox.configure(width=30, bg="#ffffff")
 
-                self.update(cards)
-
                 # right part : single-card details and picture
+                # top : picture
                 self.imglbl = tix.Label(self.main)
-                self.selection_reset()
 
-                # bottom : add-a-card Button
-                self.addacard = tix.Button(self.main, text=" + ", command=self.search)
+                # bottom : filters
+                self.rightpart = tix.Frame(self.main)
 
-                # bottom : set codes index
-                self.askcode =  tix.Button(self.main, text=" ? ", command=self.showsets)
+                self.sort = LabelFrame(self.rightpart, text="Trier par : ")
+                self.sortby = tix.StringVar(self.sort, "foreign_name")
+                self.sort_buttons = list()
+                for i, (d,s) in enumerate(SORT_PARAMS) :
+                        b = tix.Radiobutton(self.sort, text=d, value=s, variable=self.sortby)
+                        b.grid(row=i, column=0, sticky="w")
+                        self.sort_buttons.append(b)
+
+                self.filter = LabelFrame(self.rightpart, text="Filtrer :")
+                self.filter_query = tix.StringVar(self.filter)
+                self.f_e = tix.Entry(self.filter, textvariable=self.filter_query, width=30)
+
+                # buttons to add a card
+                self.addacard = tix.Button(self.rightpart, text=" + ", command=self.search)
+                self.askcode =  tix.Button(self.rightpart, text=" ? ", command=self.showsets)
                 self.set_codes = None
 
                 self.main.bind_all("<Control-s>", self.save)
@@ -153,12 +179,23 @@ class CardPresenter :
                 self.main.bind_all("<plus>", self.inc) # "+" from the alphabetic pad
                 self.main.bind_all("<KP_Subtract>", self.dec) # idem
                 self.main.bind_all("<minus>", self.dec)
+                self.sortby.trace("w", lambda x,y,z:self.update(self.cards))
+                self.filter_query.trace("w", lambda x,y,z:self.update())
 
-                self.main.pack(fill="both",expand=True)
-                self.names.place(x=0, y=0, anchor="nw", relheight=1.0)
-                self.imglbl.place(anchor="ne", relx=1.0, rely=0.0, width=CARD_DIM[0], height=CARD_DIM[1])
-                self.addacard.place(anchor="se", relx=1.0, rely=1.0)
-                self.askcode.place(anchor="se", relx=0.9, rely=1.0)
+
+                self.names.pack(side="left", fill="y")
+                self.imglbl.pack(side="top", fill="x")
+                self.rightpart.pack(side="top", fill="both", expand=True)
+                self.sort.grid(row=0, column=0, sticky="nsew")
+                self.f_e.pack()
+                self.filter.grid(row=0, column=1, columnspan=3, sticky="nsew")
+                self.addacard.grid(row=1, column=3)
+                self.askcode.grid(row=1, column=2)
+                # these were useful when there was no filter above to fill the place...
+                self.rightpart.grid_rowconfigure(0, weight=1)
+                self.rightpart.grid_columnconfigure(1, weight=1)
+
+                self.update(cards)
 
         def save(self, dummy_arg=None):
                 # We should also find a way to store the pictures
@@ -174,20 +211,27 @@ class CardPresenter :
                 self.update(read_from_file(file))
 
         def update(self, cards=None):
+                """updates the text displayed in self.names, using the filter query.
+                If cards is given, that list will be used as self.cards (and will replace it)
+                after being sorted.
+                No cards, no sorting !"""
+                fq = self.filter_query.get().strip()
                 self.selection_reset()
                 if cards is not None :
                         self.cards = cards
-                        self.cards.sort(key=lambda card:card.get_foreign_name())
+                        self.cards.sort(key=lambda card:getattr(card, self.sortby.get()))
                 self.names.listbox.delete(0,"end")
                 self.names.listbox.insert(0,
-                *[card.get_foreign_name()+" (x{})".format(card.amount)*bool(card.amount-1) for card in self.cards])
+                        *[card.foreign_name+" (x{})".format(card.amount)*bool(card.amount-1) \
+                        for card in self.cards if fq in card.identifier])
 
         def update_one(self, index):
                 self.names.listbox.delete(index)
-                self.names.listbox.insert(index, self.cards[index].get_foreign_name()+" (x{})".format(self.cards[index].amount)*bool(self.cards[index].amount-1))
+                self.names.listbox.insert(index, self.cards[index].foreign_name+" (x{})".format(self.cards[index].amount)*bool(self.cards[index].amount-1))
 
         def selection_reset(self):
-                self.curimg = None
+                self.curimg = ImageTk.PhotoImage(Image.open("./back.jpeg"))
+                self.imglbl.configure(image=self.curimg)
                 self.curindex = None
 
         def display_card(self, dummy_arg=None):
@@ -251,7 +295,7 @@ class CardPresenter :
 
                         if f(self, card) is None : # if f returns something if we don't have to update the selection
                                 self.names.listbox.delete(index)
-                                self.names.listbox.insert(index, card.get_foreign_name()+" (x{})".format(card.amount)*bool(card.amount-1))
+                                self.names.listbox.insert(index, card.foreign_name+" (x{})".format(card.amount)*bool(card.amount-1))
 
                                 self.names.listbox.selection_clear(index)
                                 self.names.listbox.selection_set(index)
