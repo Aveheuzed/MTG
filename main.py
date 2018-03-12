@@ -11,11 +11,17 @@ import mtgsdk
 
 LANG = "French"
 CARD_BOTTOM = "http://gatherer.wizards.com/Handlers/Image.ashx?type=card&name=Assault%20/%20Battery"
-CARD_DIM = (223,310)
 SORT_PARAMS = [
         ("nom", "foreign_name"),
         ("coût", "cmc"),
-        ("type", "type")]
+        ("type", "types"),
+        ("rareté", "rarity_level")]
+RARITY = [
+        "Mythic Rare",
+        "Rare",
+        "Uncommon",
+        "Common",
+        "Basic Land"]
 
 def list_sets():
         sets = mtgsdk.Set.all()
@@ -82,7 +88,11 @@ class Card(mtgsdk.Card) :
         def __getattr__(self, attr) :
                 """Returns, if present, the name of the card in language LANG.
                 Else, returns card.name (usually in English)"""
-                if attr not in ("foreign_name", "identifier") :
+                if attr not in (
+                        "foreign_name",
+                        "identifier",
+                        "rarity_level"
+                        ) :
                         raise AttributeError("No such atribute : "+attr)
                 elif attr == "identifier" :
                         return " ".join(str(getattr(self, x, str())).lower() for x in (
@@ -92,19 +102,21 @@ class Card(mtgsdk.Card) :
                                         "supertype",
                                         "watermark",
                                         "text"))
-
-                if self.number.endswith("a"):
-                        if not hasattr(self, "twin") :
-                                number = self.number[:-1]+"b"
-                                self.twin  = Card.where(set=self.set, number=number).all()[0]
-                        return self._get_foreign_name() + " // " + self.twin._get_foreign_name()
-                elif self.number.endswith("b") :
-                        if not hasattr(self, "twin") :
-                                number = self.number[:-1]+"a"
-                                self.twin = Card.where(set=self.set, number=number).all()[0]
-                        return self.twin._get_foreign_name() + " // " + self._get_foreign_name()
-                else :
-                        return self._get_foreign_name()
+                elif attr == "rarity_level" :
+                        return RARITY.index(self.rarity)
+                else : # foreign_name
+                        if self.number.endswith("a"):
+                                if not hasattr(self, "twin") :
+                                        number = self.number[:-1]+"b"
+                                        self.twin  = Card.where(set=self.set, number=number).all()[0]
+                                return self._get_foreign_name() + " // " + self.twin._get_foreign_name()
+                        elif self.number.endswith("b") :
+                                if not hasattr(self, "twin") :
+                                        number = self.number[:-1]+"a"
+                                        self.twin = Card.where(set=self.set, number=number).all()[0]
+                                return self.twin._get_foreign_name() + " // " + self._get_foreign_name()
+                        else :
+                                return self._get_foreign_name()
 
         def _get_foreign_name(card):
                 if card.foreign_names is None :
@@ -144,7 +156,10 @@ class CardPresenter :
                 self.main.resizable(False, True)
 
                 # left part : list of all the cards
-                self.cards = list() # for mention only ; self.update fills it
+                self._cards = list() # for mention only ; self.update fills it
+                # self._cards represents all the stored cards
+                # self.cards is self._cards after user-filtering
+                # see update and below
                 self.names = tix.ScrolledListBox(self.main)
                 self.names.listbox.configure(width=30, bg="#ffffff")
 
@@ -202,7 +217,8 @@ class CardPresenter :
                 file = asksaveasfile(mode="wb")
                 if file is None :
                         return
-                write_to_file(file, self.cards)
+                write_to_file(file, self._cards)
+                # we must access _cards directly to get the cards that are hidden by the filter
 
         def load(self, dummy_arg=None):
                 file = askopenfile(mode="rb")
@@ -215,15 +231,20 @@ class CardPresenter :
                 If cards is given, that list will be used as self.cards (and will replace it)
                 after being sorted.
                 No cards, no sorting !"""
-                fq = self.filter_query.get().strip()
                 self.selection_reset()
                 if cards is not None :
-                        self.cards = cards
-                        self.cards.sort(key=lambda card:getattr(card, self.sortby.get()))
+                        self._cards = cards
+                        self._cards.sort(key=lambda card:getattr(card, self.sortby.get()))
                 self.names.listbox.delete(0,"end")
                 self.names.listbox.insert(0,
                         *[card.foreign_name+" (x{})".format(card.amount)*bool(card.amount-1) \
-                        for card in self.cards if fq in card.identifier])
+                        for card in self.cards])
+
+        def _get(self):
+                fq = self.filter_query.get().strip()
+                return [card for card in self._cards if fq in card.identifier]
+
+        cards = property(_get, update)
 
         def update_one(self, index):
                 self.names.listbox.delete(index)
