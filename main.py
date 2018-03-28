@@ -166,6 +166,7 @@ class CardPresenter :
                 # right part : single-card details and picture
                 # top : picture
                 self.imglbl = tix.Label(self.main)
+                self.flipped = False
 
                 # bottom : filters
                 self.rightpart = tix.Frame(self.main)
@@ -196,6 +197,7 @@ class CardPresenter :
                 self.main.bind_all("<minus>", self.dec)
                 self.sortby.trace("w", lambda x,y,z:self.update(self.cards))
                 self.filter_query.trace("w", lambda x,y,z:self.update())
+                self.imglbl.bind("<Button-1>",self.switch_img)
 
 
                 self.names.pack(side="left", fill="y")
@@ -259,11 +261,24 @@ class CardPresenter :
                 index = self.names.listbox.curselection()
                 if not index : return # if no selection
                 index = index[0]
-                if self.curindex != index :
-                        card = self.cards[index]
-                        self.curimg = card.getimg()
+                card = self.cards[index]
+                self.curimg = card.getimg()
+                self.imglbl.configure(image=self.curimg)
+                self.curindex = index
+                self.flipped = False
+
+        def switch_img(self, dummy_arg=None):
+                index = self.names.listbox.curselection()
+                if not index : return # if no selection
+                index = index[0]
+                card = self.cards[index]
+                if self.flipped :
+                        self.display_card()
+                elif hasattr(card,"twin") :
+                        self.curimg = Card.getimg(card.twin)
                         self.imglbl.configure(image=self.curimg)
-                        self.curindex = index
+                        self.flipped = True
+
 
         def search(self,initial=str()):
                 # 1. Ask the card ID (set + number)
@@ -275,6 +290,14 @@ class CardPresenter :
                         showerror("Saisie incorrecte", "Assurez-vous d'avoir correctement saisi l'identifiant (en respectant la casse)")
                         return
                 set_id, num = z.groupdict()["code"].upper(), z.groupdict()["number"].lstrip("0")
+
+                # if the card's already stored, we can add it manually without request to the remote API
+                for i,card in enumerate(self._cards) :
+                        if card.set == set_id and card.number == num :
+                                self._cards[i] += 1
+                                if card in self.cards : #means it's displayed
+                                        self.update_one(i)
+                                return
 
                 # 2. Proceed the request
                 rq = Card.where(language=LANG, set=set_id, number=num).all()
@@ -299,24 +322,18 @@ class CardPresenter :
 
                 rq = rq[0]
                 # 3. Add the found card to the existing database
-                if rq in self.cards :
-                        index = self.cards.index(rq)
-                        self.cards[index] += 1
-                        self.update_one(index)
-                else :
-                        self.cards.append(rq)
-                        self.update(self.cards) # we pass self.cards for parameter, so that update will sort it
-                        self.selection_reset()
+                self._cards.append(rq)
+                self.update(self.cards) # we pass self.cards for parameter, so that update will sort it
 
         def _select_update(f):
                 def f_(self, dummy_arg=None):
                         index = self.names.listbox.curselection()
                         if not index : return
-                        card = self.cards[index[0]]
+                        index = index[0]
+                        card = self.cards[index]
 
                         if f(self, card) is None : # if f returns something if we don't have to update the selection
-                                self.names.listbox.delete(index)
-                                self.names.listbox.insert(index, card.foreign_name+" (x{})".format(card.amount)*bool(card.amount-1))
+                                self.update_one(index)
 
                                 self.names.listbox.selection_clear(index)
                                 self.names.listbox.selection_set(index)
@@ -333,8 +350,9 @@ class CardPresenter :
                 and removes it (after confirm) if it reaches 0"""
                 if card.amount == 1 :
                         if askokcancel("Confirmation de suppression","Supprimer cette carte de l'inventaire ?") :
+                                index_ = self._cards.index(card)
                                 index = self.cards.index(card)
-                                del self.cards[index]
+                                del self._cards[index_]
                                 self.names.listbox.delete(index)
                                 self.selection_reset()
                         return -1
