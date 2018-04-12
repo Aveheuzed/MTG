@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 
-import io, urllib.request, re, pickle, pickletools, zlib, math
+import io, urllib.request, re, pickle, pickletools, zlib, math, zipfile
 from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
-from tkinter.messagebox import showerror,  askokcancel
+from tkinter.messagebox import showerror, askokcancel
 from tkinter import tix
 from tkinter import LabelFrame # tix one's' buggy...
 import mtgsdk
 
 LANG = "French"
-CARD_BOTTOM = "http://gatherer.wizards.com/Handlers/Image.ashx?type=card&name=Assault%20/%20Battery"
 SORT_PARAMS = [
         ("nom", "foreign_name"),
         ("coût", "cmc"),
@@ -45,7 +44,64 @@ def read_from_file(file):
                 return obj
 
 
+class ImgCache :
+        """Implements an images cache. Please don't make two instances \
+        pointing to the same cache file.
+        This is a 2-levels cache : one in a zip file, the other in RAM"""
+
+        def __init__(self, filename, maxbuffersize=50):
+                self.filename = filename
+                try :
+                        self.rofh = zipfile.ZipFile(self.filename, mode="r", compression=8)
+                except :
+                        zipfile.ZipFile(self.filename, mode="x").close()
+                        self.rofh = zipfile.ZipFile(self.filename, mode="r")
+                self.ramcache = list()
+                self.ramindexes = list()
+                self.maxbuffersize = maxbuffersize
+
+        def __contains__(self, what) :
+                if what in self.ramindexes :
+                        return True
+                elif what in self.rofh.namelist() :
+                        return True
+                return False
+
+        def __getitem__(self, what):
+                what = str(what)
+                if what in self.ramindexes :
+                        i = self.ramindexes.index(what)
+                        self.ramindexes.insert(0, self.ramindexes.pop(i))
+                        self.ramcache.insert(0, self.ramcache.pop(i))
+                        return self.ramcache[0]
+                elif what in self.rofh.namelist() :
+                        if len(self.ramindexes) == self.maxbuffersize :
+                                del self.ramindexes[-1]
+                                del self.ramcache[-1]
+                        self.ramindexes.insert(0, what)
+                        self.ramcache.insert(0, Image.open(self.rofh.open(what)))
+                        return self.ramcache[0]
+                else :
+                        raise KeyError("This is not stored yet in this database")
+
+        def __setitem__(self, key, value):
+                """Expects a PIL Image for value, and a multiverseid for key"""
+                key = str(key)
+                if key in self :
+                        return
+                with zipfile.ZipFile(self.filename, mode="a", compression=8) as rwfh :
+                        with rwfh.open(key, mode="w") as file :
+                                value.save(file,format=value.format)
+                if len(self.ramindexes) == self.maxbuffersize :
+                        del self.ramindexes[-1]
+                        del self.ramcache[-1]
+                self.ramindexes.insert(0, key)
+                self.ramcache.insert(0, value)
+
+
 class Card(mtgsdk.Card) :
+
+        cache = ImgCache("./cache.zip")
 
         def __new__(cls, response_dict=dict()) :
                 if "amount" not in response_dict.keys():
@@ -129,20 +185,26 @@ class Card(mtgsdk.Card) :
         def getimg(card):
                 """Retrives and returns the picture of the card
                 if possible, in the global LANG language"""
+                if str(card.multiverseid) in Card.cache :
+                        return ImageTk.PhotoImage(Card.cache[card.multiverseid])
                 if card.image_url is None :
-                        url = CARD_BOTTOM
+                        url = None
                 elif card.foreign_names is None :
                         url = card.image_url
                 else :
                         url = None
                         for l in card.foreign_names :
                                 if l["language"] == LANG :
-                                        url = l.get("imageUrl", CARD_BOTTOM)
+                                        url = l.get("imageUrl")
                                         break
                         if url is None :
                                 url = card.image_url
-                data = io.BytesIO(urllib.request.urlopen(url).read())
-                img = Image.open(data)
+                if url is not None :
+                        data = io.BytesIO(urllib.request.urlopen(url).read())
+                        img = Image.open(data)
+                else :
+                        img = Image.open("./back.jpeg")
+                Card.cache[card.multiverseid] = img
                 return ImageTk.PhotoImage(img)
 
 
@@ -324,6 +386,9 @@ class CardPresenter :
                 # 3. Add the found card to the existing database
                 self._cards.append(rq)
                 self.update(self.cards) # we pass self.cards for parameter, so that update will sort it
+                if rq in self.cards :
+                        self.names.listbox.select_set(self.cards.index(rq))
+                        self.display_card()
 
         def _select_update(f):
                 def f_(self, dummy_arg=None):
