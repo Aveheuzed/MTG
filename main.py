@@ -5,9 +5,22 @@ from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
 from tkinter.messagebox import showerror, askokcancel
-from tkinter import tix
 from tkinter import LabelFrame # tix one's' buggy...
-import mtgsdk
+from tkinter import tix
+
+try :
+        import mtgsdk
+except ModuleNotFoundError :
+        main = tix.Tk()
+        if askokcancel("Dépendance introuvable","mtgsdk (nécessaire au bon focntionnement) n'est pas installé... Installer ?") :
+                import os
+                os.popen("pip3 install mtgsdk").read()
+                import mtgsdk
+        else :
+                exit(1)
+else :
+        main = None
+
 
 LANG = "French"
 SORT_PARAMS = [
@@ -443,5 +456,5 @@ class CardPresenter :
 
 
 if __name__ == '__main__':
-        cp = CardPresenter()
+        cp = CardPresenter(main)
         cp.main.mainloop()
