@@ -372,6 +372,9 @@ class CardPresenter :
                                 self._cards[i] += 1
                                 if card in self.cards : #means it's displayed
                                         self.update_one(i)
+                                        # it may be not the same index in self.cards and self._cards
+                                        self.names.listbox.select_set(self.cards.index(card))
+                                        self.display_card()
                                 return
 
                 # 2. Proceed the request
