@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import io, urllib.request, re, pickle, pickletools, zlib, math, zipfile
+import io, urllib.request, re, pickle, pickletools, zlib, math, zipfile, pathlib
 from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
@@ -114,7 +114,7 @@ class ImgCache :
 
 class Card(mtgsdk.Card) :
 
-        cache = ImgCache("./cache.zip")
+        cache = ImgCache(pathlib.Path(__file__).parent)
 
         def __new__(cls, response_dict=dict()) :
                 if "amount" not in response_dict.keys():
@@ -328,7 +328,7 @@ class CardPresenter :
                 self.names.listbox.insert(index, self.cards[index].foreign_name+" (x{})".format(self.cards[index].amount)*bool(self.cards[index].amount-1))
 
         def selection_reset(self):
-                self.curimg = ImageTk.PhotoImage(Image.open("./back.jpeg"))
+                self.curimg = ImageTk.PhotoImage(Card.cache["back.jpeg"])
                 self.imglbl.configure(image=self.curimg)
                 self.curindex = None
 
