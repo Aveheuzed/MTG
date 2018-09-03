@@ -7,6 +7,7 @@ from tkinter.simpledialog import askstring
 from tkinter.messagebox import showerror, askokcancel
 from tkinter import LabelFrame # tix one's' buggy...
 from tkinter import tix
+import argparse
 
 try :
         import mtgsdk
@@ -297,8 +298,9 @@ class CardPresenter :
                 write_to_file(file, self._cards)
                 # we must access _cards directly to get the cards that are hidden by the filter
 
-        def load(self, dummy_arg=None):
-                file = askopenfile(mode="rb")
+        def load(self, dummy_arg=None, *, file=None):
+                if file is None :
+                        file = askopenfile(mode="rb")
                 if file is None :
                         return
                 self.update(read_from_file(file))
@@ -459,5 +461,10 @@ class CardPresenter :
 
 
 if __name__ == '__main__':
+        parser = argparse.ArgumentParser()
+        parser.add_argument("file", type=argparse.FileType("rb"), nargs="?", default=None, help="file to open")
+        args = parser.parse_args()
         cp = CardPresenter(main)
+        if args.file :
+                cp.load(file=args.file)
         cp.main.mainloop()
