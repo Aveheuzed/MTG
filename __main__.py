@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import io, urllib.request, re, pickle, pickletools, zlib, math, zipfile, pathlib
+import urllib.request, re, pickle, pickletools, zlib, math, zipfile, pathlib
 from PIL import Image, ImageTk
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter.simpledialog import askstring
@@ -214,7 +214,7 @@ class Card(mtgsdk.Card) :
                         if url is None :
                                 url = card.image_url
                 if url is not None :
-                        data = io.BytesIO(urllib.request.urlopen(url).read())
+                        data = urllib.request.urlopen(url)
                         img = Image.open(data)
                 else :
                         img = Image.open("./back.jpeg")
